@@ -1,0 +1,39 @@
+name: 'AI Discord Release Notes'
+description: 'Summarizes PRs using AI and sends formatted release notes to Discord.'
+inputs:
+  discord_webhook:
+    description: 'Discord Webhook URL'
+    required: true
+  ai_api_key:
+    description: 'Gemini API Key'
+    required: true
+  github_token:
+    description: 'GitHub token to fetch commit data'
+    required: true
+  language:
+    description: 'Output language (blank for English, sv for Swedish)'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: pip install -r ${{ github.action_path }}/requirements.txt
+      shell: bash
+      
+    - name: Run script
+      run: python ${{ github.action_path }}/main.py
+      shell: bash
+      env:
+        DISCORD_WEBHOOK: ${{ inputs.discord_webhook }}
+        GEMINI_API_KEY: ${{ inputs.ai_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        LANGUAGE: ${{ inputs.language }}
+        GITHUB_EVENT_PATH: ${{ github.event_path }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
