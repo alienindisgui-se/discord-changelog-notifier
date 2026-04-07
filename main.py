@@ -4,36 +4,55 @@ import requests
 import random
 import logging
 from datetime import datetime
-from github import Github
+from github import Github, Auth
 import google.genai as genai
 from groq import Groq
 from dotenv import load_dotenv
+from config import (
+    AI_MODELS,
+    LANGUAGE_CODES,
+    CATEGORIES,
+    MOCK_DATA,
+    LOG_DIR_DEFAULT,
+    HTTP_SUCCESS_CODES,
+    JSON_SCHEMA_TEMPLATE
+)
+from utils import (
+    create_ai_prompt,
+    process_category_keywords,
+    create_discord_embed,
+    get_next_log_number
+)
 
 # Load env vars for local testing (.env file)
 load_dotenv()
 
 # Set up logging with unique timestamped files
-log_dir = os.getenv("LOG_DIR", "logs")
+log_dir = os.getenv("LOG_DIR", LOG_DIR_DEFAULT)
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
 # Create sequential log file for each run
 date_prefix = datetime.now().strftime("%Y%m%d")
-log_number = 1
+log_number = get_next_log_number(log_dir, date_prefix)
+log_file = os.path.join(log_dir, f"{date_prefix}_{log_number}.log")
 
-# Find next available log number
-while True:
-    log_file = os.path.join(log_dir, f"{date_prefix}_{log_number}.log")
-    if not os.path.exists(log_file):
-        break
-    log_number += 1
+# Configure handlers with UTF-8 encoding
+file_handler = logging.FileHandler(log_file, mode="w", encoding='utf-8')
+stream_handler = logging.StreamHandler()
+try:
+    stream_handler.stream.reconfigure(encoding='utf-8')
+except AttributeError:
+    # Fallback for older Python versions
+    import codecs
+    stream_handler.stream = codecs.getwriter('utf-8')(stream_handler.stream.buffer)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(log_file, mode="w"),  # Use 'w' mode for new file each run
-        logging.StreamHandler()
+        file_handler,
+        stream_handler
     ]
 )
 
@@ -44,33 +63,19 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 TEST_MODE = os.getenv("TEST_MODE", "") # 'mock', 'pr', or empty for CI
 
-# --- Configuration & Templates ---
-CATEGORIES = {
-    "improvements": {"en": "🚀 Improvements", "sv": "🚀 Förbättringar", "color": 3066993},
-    "wip": {"en": "🚧 Work in Progress", "sv": "🚧 Pågående arbete", "color": 15844367},
-    "bug_fixes": {"en": "🛠️ Bug Fixes", "sv": "🛠️ Buggfixar", "color": 15158332},
-    "known_issues": {"en": "⚠️ Known Issues", "sv": "⚠️ Kända problem", "color": 16705372}
-}
-
 def get_formatted_date(lang):
     now = datetime.now()
-    if lang == 'sv':
+    if lang == LANGUAGE_CODES["sv"]:
         months = ["", "januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"]
-        return f"**{now.day} {months[now.month]} {now.year} – Uppdateringar**"
-    return f"**{now.strftime('%B %d, %Y')} – Updates**"
+        return f"**{now.day} {months[now.month]} {now.year}**"
+    return f"**{now.strftime('%B %d, %Y')}**"
 
 def get_pr_data():
     """Fetches PR data depending on the environment (CI, Local Mock, Local PR)."""
     if TEST_MODE == "mock":
-        return {
-            "repo": "mock-repo-tracker",
-            "branch": "feature/new-api",
-            "title": "Update API and fix crashes",
-            "description": "Added auto-compression for videos. Fixed a bug where big files crashed the app. We are currently working on a shared config loader.",
-            "commits": ["fix: memory leak", "feat: added 10mb limit", "chore: update deps"]
-        }
+        return MOCK_DATA
 
-    gh = Github(GITHUB_TOKEN)
+    gh = Github(auth=Auth.Token(GITHUB_TOKEN))
     
     if TEST_MODE == "pr":
         repo_name = os.getenv("TEST_REPO") # e.g., "username/repo"
@@ -102,20 +107,21 @@ def generate_ai_summary(pr_data, lang):
     providers = []
     
     # Add available providers to list
-    if GROQ_API_KEY:
-        providers.append(("groq", generate_groq_summary))
     if GEMINI_API_KEY:
         providers.append(("gemini", generate_gemini_summary))
+    if GROQ_API_KEY:
+        providers.append(("groq", generate_groq_summary))
     
     # If no providers available, use fallback
     if not providers:
         logging.info("No AI providers configured, using fallback categorization...")
         return generate_fallback_summary(pr_data, lang)
     
+    # Try providers in order: Gemini first, then Groq
     # Try providers in order: Groq first, then Gemini
     for provider_name, provider_func in providers:
         try:
-            logging.info(f"Using AI provider: {provider_name}")
+            logging.info(f"Using AI provider: {provider_name} ({AI_MODELS[provider_name]})")
             return provider_func(pr_data, lang)
         except Exception as e:
             logging.error(f"Selected AI provider ({provider_name}) failed: {e}")
@@ -137,69 +143,54 @@ def generate_gemini_summary(pr_data, lang):
     """Uses Gemini to categorize PR data into a strict JSON format."""
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    lang_inst = "Swedish" if lang == 'sv' else "English"
-    
-    prompt = f"""
-    Analyze the following Pull Request data and categorize the changes.
-    Output the results strictly in {lang_inst}.
-    Write short, professional bullet points.
-    
-    Repository: {pr_data['repo']}
-    Branch: {pr_data['branch']}
-    Title: {pr_data['title']}
-    Description: {pr_data['description']}
-    Commits: {pr_data['commits']}
-    
-    Respond ONLY with a JSON object using this exact schema. If a category has no items, leave the array empty. Do not include bullet points characters in the text, just the raw text.
-    {{
-        "improvements": ["item 1", "item 2"],
-        "wip": [],
-        "bug_fixes": [],
-        "known_issues": []
-    }}
-    """
+    prompt = create_ai_prompt(pr_data, lang, JSON_SCHEMA_TEMPLATE)
+    logging.info(f"AI Prompt (Gemini):\n{prompt}")
     
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model=AI_MODELS["gemini"],
         contents=prompt
     )
-    return json.loads(response.text), "Gemini 2.0 Flash"
+    
+    # Log the raw response for debugging
+    logging.info(f"Raw Gemini response: {response.text}")
+    
+    if not response.text or response.text.strip() == "":
+        logging.error("Gemini returned empty response")
+        raise ValueError("Empty response from Gemini")
+    
+    # Strip markdown code blocks if present
+    cleaned_response = response.text
+    if cleaned_response.startswith("```json"):
+        cleaned_response = cleaned_response[7:]  # Remove ```json
+    if cleaned_response.endswith("```"):
+        cleaned_response = cleaned_response[:-3]  # Remove ```
+    
+    try:
+        parsed_response = json.loads(cleaned_response)
+        return parsed_response, "Gemini 2.5 Flash"
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to parse Gemini JSON response: {e}")
+        logging.error(f"Response text was: {repr(response.text)}")
+        logging.error(f"Cleaned response was: {repr(cleaned_response)}")
+        raise e
 
 def generate_groq_summary(pr_data, lang):
     """Uses Groq to categorize PR data into a strict JSON format."""
     try:
         client = Groq(api_key=GROQ_API_KEY)
         
-        lang_inst = "Swedish" if lang == 'sv' else "English"
-        
-        prompt = f"""
-        Analyze the following Pull Request data and categorize the changes.
-        Output the results strictly in {lang_inst}.
-        Write short, professional bullet points.
-        
-        Repository: {pr_data['repo']}
-        Branch: {pr_data['branch']}
-        Title: {pr_data['title']}
-        Description: {pr_data['description']}
-        Commits: {pr_data['commits']}
-        
-        Respond ONLY with a JSON object using this exact schema. If a category has no items, leave the array empty. Do not include bullet points characters in the text, just the raw text.
-        {{
-            "improvements": ["item 1", "item 2"],
-            "wip": [],
-            "bug_fixes": [],
-            "known_issues": []
-        }}
-        """
+        prompt = create_ai_prompt(pr_data, lang, JSON_SCHEMA_TEMPLATE)
+        logging.info(f"AI Prompt (Groq):\n{prompt}")
+        logging.info(f"create_ai_prompt return value: {prompt}")
         
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=AI_MODELS["groq"],
             messages=[
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"}
         )
-        return json.loads(response.choices[0].message.content), "Groq Llama 3.1 8B"
+        return json.loads(response.choices[0].message.content), "Groq Llama 4 Scout"
     
     except Exception as e:
         logging.error(f"Groq service unavailable ({e}), falling back...")
@@ -211,44 +202,36 @@ def generate_fallback_summary(pr_data, lang):
     description = pr_data['description'].lower()
     commits = [c.lower() for c in pr_data['commits']]
     
-    improvements = []
-    bug_fixes = []
-    wip = []
-    known_issues = []
-    
-    # Simple keyword-based categorization
     all_text = f"{title} {description} {' '.join(commits)}"
     
-    if any(keyword in all_text for keyword in ['feat', 'add', 'new', 'improve', 'enhance', 'update']):
-        if lang == 'sv':
-            improvements.append("Nya funktioner och förbättringar tillagda")
-        else:
-            improvements.append("New features and improvements added")
+    # Process categories using utility functions
+    improvements = process_category_keywords(
+        all_text, ['feat', 'add', 'new', 'improve', 'enhance', 'update'],
+        lang,
+        {"sv": "Nya funktioner och förbättringar tillagda", "en": "New features and improvements added"}
+    )
     
-    if any(keyword in all_text for keyword in ['fix', 'bug', 'issue', 'error', 'crash', 'resolve']):
-        if lang == 'sv':
-            bug_fixes.append("Buggfixar implementerade")
-        else:
-            bug_fixes.append("Bug fixes implemented")
+    bug_fixes = process_category_keywords(
+        all_text, ['fix', 'bug', 'issue', 'error', 'crash', 'resolve'],
+        lang,
+        {"sv": "Buggfixar implementerade", "en": "Bug fixes implemented"}
+    )
     
-    if any(keyword in all_text for keyword in ['wip', 'work in progress', 'todo', 'in progress']):
-        if lang == 'sv':
-            wip.append("Arbete pågår")
-        else:
-            wip.append("Work in progress")
+    wip = process_category_keywords(
+        all_text, ['wip', 'work in progress', 'todo', 'in progress'],
+        lang,
+        {"sv": "Arbete pågår", "en": "Work in progress"}
+    )
     
-    if any(keyword in all_text for keyword in ['known issue', 'problem', 'limitation']):
-        if lang == 'sv':
-            known_issues.append("Kända problem identifierade")
-        else:
-            known_issues.append("Known issues identified")
+    known_issues = process_category_keywords(
+        all_text, ['known issue', 'problem', 'limitation'],
+        lang,
+        {"sv": "Kända problem identifierade", "en": "Known issues identified"}
+    )
     
     # If no categorization found, use title as improvement
     if not improvements and not bug_fixes and not wip and not known_issues:
-        if lang == 'sv':
-            improvements.append(pr_data['title'])
-        else:
-            improvements.append(pr_data['title'])
+        improvements.append(pr_data['title'])
     
     return {
         "improvements": improvements,
@@ -266,30 +249,29 @@ def send_to_discord(ai_data, repo_name, lang):
     for key, config in CATEGORIES.items():
         items = ai_data.get(key, [])
         if items:
-            # Format with bullet points
-            description = "\n".join([f"• {item}" for item in items])
+            # Format with bullet points, starting with newline
+            description = "\n" + "\n".join([f"• {item}" for item in items])
             
-            # Title format: "🚀 Förbättringar: repo-name" (matching your example)
-            title = f"{config[lang_key]}: {repo_name}" if key in ["improvements", "bug_fixes"] else config[lang_key]
+            # Title format: "🚀 Förbättringar" (no repo name in title)
+            title = f"{config[lang_key]}"
             
-            embeds.append({
-                "title": title,
-                "description": description,
-                "color": config["color"]
-            })
+            embeds.append(create_discord_embed(title, description, config["color"]))
     
     payload = {
-        "content": get_formatted_date(lang_key),
+        "content": f"**{get_formatted_date(lang_key).replace('**', '')} - {repo_name}**",
         "embeds": embeds,
         "attachments": []
     }
     
     # Log payload for debugging
-    logging.info("Payload to send:\n" + json.dumps(payload, indent=2, ensure_ascii=True))
+    formatted_payload = json.dumps(payload, indent=2, ensure_ascii=False)
+    # Replace escaped newlines with actual newlines for better readability
+    formatted_payload = formatted_payload.replace('\\n', '\n')
+    logging.info("Payload to send:\n" + formatted_payload)
     
     if WEBHOOK_URL:
         response = requests.post(WEBHOOK_URL, json=payload)
-        if response.status_code in [200, 204]:
+        if response.status_code in HTTP_SUCCESS_CODES:
             logging.info("Successfully sent to Discord!")
         else:
             logging.error(f"Failed to send webhook. Status: {response.status_code}, Response: {response.text}")
@@ -300,8 +282,9 @@ if __name__ == "__main__":
     logging.info(f"Starting release notes generation (Mode: {TEST_MODE or 'CI'})...")
     try:
         pr_data = get_pr_data()
-        ai_summary, ai_model = generate_ai_summary(pr_data, LANGUAGE)
-        send_to_discord(ai_summary, pr_data['repo'], LANGUAGE)
+        ai_summary = generate_ai_summary(pr_data, LANGUAGE)
+        ai_data, ai_model = ai_summary  # Fix tuple unpacking
+        send_to_discord(ai_data, pr_data['repo'], LANGUAGE)
     except Exception as e:
         logging.error(f"Error occurred: {e}")
         exit(1)
