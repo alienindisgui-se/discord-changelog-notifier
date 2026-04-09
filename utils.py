@@ -10,7 +10,7 @@ def get_language_text(lang_key: str, sv_text: str, en_text: str) -> str:
 
 
 def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -> str:
-    """Create AI prompt with standardized schema."""
+    """Create AI prompt with standardized schema for a non-technical audience."""
     lang_inst = "Swedish" if lang == LANGUAGE_CODES["sv"] else "English"
     
     # Handle missing fields gracefully
@@ -21,17 +21,32 @@ def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -
     commits = pr_data.get('commits', [])
     
     return f"""
-    Analyze the following Pull Request data and categorize the changes.
+    Analyze the following Pull Request data and summarize the core changes for a NON-TECHNICAL audience.
     Output the results strictly in {lang_inst}.
-    Write short, professional bullet points.
     
+    CRITICAL RULES:
+    1. MAX 1 SHORT SENTENCE PER BULLET POINT. Be punchy and direct. Never use semicolons or long compound sentences.
+    2. Focus ONLY on the concrete impact on the end-user or the service. What is the actual value?
+    3. NO technical terms, NO explanations of how it was coded, NO details about specific UI tweaks (like "bold text" or "yellow to red colors").
+    4. MAXIMUM 3 bullet points per category. Only pick the absolute most important changes. Drop the rest.
+    
+    EXAMPLES OF GOOD VS BAD OUTPUT:
+    BAD: Systemet är nu mer pålitligt; det hanterar fel bättre genom att stoppa på ett ordnat sätt om det inte kan hämta information, och det har blivit bättre på att undvika blockeringar från YouTube för att säkerställa kontinuerlig spårning.
+    GOOD: Tjänsten är nu mycket stabilare och har bättre skydd mot att blockeras av YouTube.
+    
+    BAD: Meddelanden om borttagna kommentarer är nu tydligare och mer informativa. De använder en tydligare varningssymbol, visar andelen borttagna kommentarer i fetstil och ändrar färg baserat på raderingsgraden.
+    GOOD: Aviseringarna är uppdaterade för att vara tydligare och mer informativa vid en första anblick.
+    
+    BAD: Det kraschade ibland när det stötte på felaktiga video-ID:n; detta har korrigerats så att det nu ignorerar dåliga ID:n utan problem.
+    GOOD: Rättade en bugg som kunde få systemet att krascha vid felaktiga videolänkar.
+
     Repository: {repo}
     Branch: {branch}
     Title: {title}
     Description: {description}
     Commits: {commits}
     
-    Respond ONLY with a JSON object using this exact schema. If a category has no items, leave the array empty. Do not include bullet points characters in the text, just the raw text.
+    Respond ONLY with a JSON object using this exact schema. If a category has no items that fit the criteria, leave the array empty. Do not include bullet points characters in the text, just the raw text.
     {schema_template}
     """
 
