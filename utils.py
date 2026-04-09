@@ -10,7 +10,7 @@ def get_language_text(lang_key: str, sv_text: str, en_text: str) -> str:
 
 
 def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -> str:
-    """Create AI prompt with standardized schema for a non-technical audience."""
+    """Create AI prompt focused on objective user value without personal pronouns."""
     lang_inst = "Swedish" if lang == LANGUAGE_CODES["sv"] else "English"
     
     # Handle missing fields gracefully
@@ -21,32 +21,32 @@ def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -
     commits = pr_data.get('commits', [])
     
     return f"""
-    Analyze the following Pull Request data and summarize the core changes for a NON-TECHNICAL audience.
-    Output the results strictly in {lang_inst}.
-    
-    CRITICAL RULES:
-    1. MAX 1 SHORT SENTENCE PER BULLET POINT. Be punchy and direct. Never use semicolons or long compound sentences.
-    2. Focus ONLY on the concrete impact on the end-user or the service. What is the actual value?
-    3. NO technical terms, NO explanations of how it was coded, NO details about specific UI tweaks (like "bold text" or "yellow to red colors").
-    4. MAXIMUM 3 bullet points per category. Only pick the absolute most important changes. Drop the rest.
-    
-    EXAMPLES OF GOOD VS BAD OUTPUT:
-    BAD: Systemet är nu mer pålitligt; det hanterar fel bättre genom att stoppa på ett ordnat sätt om det inte kan hämta information, och det har blivit bättre på att undvika blockeringar från YouTube för att säkerställa kontinuerlig spårning.
-    GOOD: Tjänsten är nu mycket stabilare och har bättre skydd mot att blockeras av YouTube.
-    
-    BAD: Meddelanden om borttagna kommentarer är nu tydligare och mer informativa. De använder en tydligare varningssymbol, visar andelen borttagna kommentarer i fetstil och ändrar färg baserat på raderingsgraden.
-    GOOD: Aviseringarna är uppdaterade för att vara tydligare och mer informativa vid en första anblick.
-    
-    BAD: Det kraschade ibland när det stötte på felaktiga video-ID:n; detta har korrigerats så att det nu ignorerar dåliga ID:n utan problem.
-    GOOD: Rättade en bugg som kunde få systemet att krascha vid felaktiga videolänkar.
+    Analyze the following Pull Request and summarize changes for a general, non-technical audience.
+    Output language: {lang_inst}.
 
+    STRICT LOGIC RULES:
+    1. NO PERSONAL PRONOUNS: Do not use words like "vi", "vår", "du", "dig", "din" or "vårt". Use a neutral, objective tone. 
+       - Instead of "Vi har förbättrat...", use "Förbättrad..." or "Systemet har blivit...".
+       - Instead of "Du kan nu se...", use "Nu visas...".
+    2. LENGTH: MAX 2 SHORT SENTENCES per bullet point. 
+    3. THE "COMMON PERSON" TRANSLATION: Translate technical tasks into clear, casual benefits:
+       - Scraping/Efficiency -> "Tjänsten är nu snabbare och använder mindre resurser."
+       - Anti-bot/Detection -> "Skyddet mot att blockeras av externa plattformar har stärkts."
+       - History/Storage -> "Historik sparas nu i 4 dagar istället för 3 för en bättre överblick."
+       - Prompt changes -> "AI-sammanfattningarna har finjusterats för att bli mer lättlästa."
+       - Code cleanup -> "Systemet har städats upp för att möjliggöra smidigare uppdateringar."
+    4. PRODUCT FOCUS: Mention changes that affect the final text output, Discord visuals, or the scope of tracking.
+    5. LIMIT: Maximum 3 bullet points per category.
+
+    DATA TO ANALYZE:
     Repository: {repo}
     Branch: {branch}
     Title: {title}
     Description: {description}
     Commits: {commits}
     
-    Respond ONLY with a JSON object using this exact schema. If a category has no items that fit the criteria, leave the array empty. Do not include bullet points characters in the text, just the raw text.
+    Respond ONLY with a JSON object using this exact schema. If a category is empty, return []. 
+    No markdown bullet points in the JSON strings.
     {schema_template}
     """
 
