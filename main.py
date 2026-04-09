@@ -144,7 +144,7 @@ def generate_gemini_summary(pr_data, lang):
     client = genai.Client(api_key=GEMINI_API_KEY)
     
     prompt = create_ai_prompt(pr_data, lang, JSON_SCHEMA_TEMPLATE)
-    logging.info(f"AI Prompt (Gemini):\n{prompt}")
+    # logging.info(f"AI Prompt (Gemini):\n{prompt}")
     
     response = client.models.generate_content(
         model=AI_MODELS["gemini"],
@@ -180,7 +180,7 @@ def generate_groq_summary(pr_data, lang):
         client = Groq(api_key=GROQ_API_KEY)
         
         prompt = create_ai_prompt(pr_data, lang, JSON_SCHEMA_TEMPLATE)
-        logging.info(f"AI Prompt (Groq):\n{prompt}")
+        # logging.info(f"AI Prompt (Groq):\n{prompt}")
         logging.info(f"create_ai_prompt return value: {prompt}")
         
         response = client.chat.completions.create(
