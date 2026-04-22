@@ -7,9 +7,6 @@ inputs:
   ai_api_key:
     description: 'Gemini API Key'
     required: true
-  github_token:
-    description: 'GitHub token to fetch commit data'
-    required: true
   language:
     description: 'Output language (blank for English, sv for Swedish)'
     required: false
@@ -33,7 +30,7 @@ runs:
       env:
         DISCORD_WEBHOOK: ${{ inputs.discord_webhook }}
         GEMINI_API_KEY: ${{ inputs.ai_api_key }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ github.token }}
         LANGUAGE: ${{ inputs.language }}
         GITHUB_EVENT_PATH: ${{ github.event_path }}
         GITHUB_REPOSITORY: ${{ github.repository }}
