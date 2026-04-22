@@ -23,6 +23,8 @@ In your target repository, add these secrets:
 
 Create `.github/workflows/discord-release-notes.yml`:
 
+**That's it!** The action automatically detects the PR from GitHub Actions. No additional configuration needed.
+
 ```yaml
 name: Discord Release Notes
 
@@ -64,13 +66,18 @@ For detailed setup instructions, advanced configurations, and troubleshooting, s
 
 ### Local Testing
 
-1. Copy `.env.example` to `.env`
-2. Fill in your API keys and test data
+For testing changes to the action itself:
+
+1. Copy `.env.example` to `.env` in this repository
+2. Fill in your API keys and test data:
+   - `GITHUB_TOKEN` - Your GitHub personal access token
+   - `TEST_REPO` - Repository to test with (e.g., "owner/repo")
+   - `TEST_PR_NUMBER` - PR number to test with
+   - `DISCORD_WEBHOOK` - Your Discord webhook (optional)
+   - `GEMINI_API_KEY` - Your Gemini API key (optional)
 3. Run: `python main.py`
 
-### Debug Mode
-
-Set `DEBUG_LOOP_ALL_PRS="true"` in `.env` to loop through all PRs in the test repository for debugging.
+**Note:** The `.env` file is only needed for local development of this action. Target repositories using this action don't need any `.env` file.
 
 ## License
 

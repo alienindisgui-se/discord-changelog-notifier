@@ -12,7 +12,6 @@ from config import (
     AI_MODELS,
     LANGUAGE_CODES,
     CATEGORIES,
-    MOCK_DATA,
     LOG_DIR_DEFAULT,
     HTTP_SUCCESS_CODES,
     JSON_SCHEMA_TEMPLATE
@@ -61,8 +60,7 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-TEST_MODE = os.getenv("TEST_MODE", "") # 'mock', 'pr', or empty for CI
-DEBUG_LOOP_ALL_PRS = os.getenv("DEBUG_LOOP_ALL_PRS", "false").lower() == "true"
+TEST_MODE = os.getenv("TEST_MODE", "") # 'pr' for local testing or empty for CI
 
 def get_formatted_date(lang):
     now = datetime.now()
@@ -72,37 +70,21 @@ def get_formatted_date(lang):
     return f"**{now.strftime('%B %d, %Y')}**"
 
 def get_pr_data():
-    """Fetches PR data depending on the environment (CI, Local Mock, Local PR)."""
-    if TEST_MODE == "mock":
-        return [MOCK_DATA]
-
+    """Fetches PR data depending on the environment (CI, Local PR)."""
     gh = Github(auth=Auth.Token(GITHUB_TOKEN))
     
     if TEST_MODE == "pr":
         repo_name = os.getenv("TEST_REPO") # e.g., "username/repo"
+        if not repo_name:
+            raise ValueError("TEST_REPO environment variable is required when TEST_MODE='pr'")
         repo = gh.get_repo(repo_name)
         
-        if DEBUG_LOOP_ALL_PRS:
-            # Loop through all PRs in the repo
-            prs = list(repo.get_pulls(state='all'))
-            logging.info(f"DEBUG_LOOP_ALL_PRS enabled: Processing {len(prs)} PRs")
-            pr_data_list = []
-            for pr in prs:
-                repo_short_name = repo_name.split('/')[-1]
-                commits = [c.commit.message for c in pr.get_commits()]
-                pr_data_list.append({
-                    "repo": repo_short_name,
-                    "branch": pr.head.ref,
-                    "title": pr.title,
-                    "description": pr.body or "No description provided.",
-                    "commits": commits,
-                    "pr_number": pr.number
-                })
-            return pr_data_list
-        else:
-            # Single PR mode
-            pr_number = int(os.getenv("TEST_PR_NUMBER"))
-            pr = repo.get_pull(pr_number)
+        # Single PR mode
+        pr_number_str = os.getenv("TEST_PR_NUMBER")
+        if not pr_number_str:
+            raise ValueError("TEST_PR_NUMBER environment variable is required when TEST_MODE='pr'")
+        pr_number = int(pr_number_str)
+        pr = repo.get_pull(pr_number)
     else:
         # Running in GitHub Actions
         with open(os.getenv("GITHUB_EVENT_PATH"), 'r') as f:
@@ -202,8 +184,6 @@ def generate_groq_summary(pr_data, lang):
         client = Groq(api_key=GROQ_API_KEY)
         
         prompt = create_ai_prompt(pr_data, lang, JSON_SCHEMA_TEMPLATE)
-        # logging.info(f"AI Prompt (Groq):\n{prompt}")
-        # logging.info(f"create_ai_prompt return value: {prompt}")
         
         response = client.chat.completions.create(
             model=AI_MODELS["groq"],
@@ -303,17 +283,14 @@ def send_to_discord(ai_data, repo_name, lang):
 if __name__ == "__main__":
     logging.info(f"Starting release notes generation (Mode: {TEST_MODE or 'CI'})...")
     try:
-        pr_data_list = get_pr_data()
+        pr_data = get_pr_data()[0]  # Get the single PR from the list
+        pr_number = pr_data.get('pr_number', 'N/A')
+        logging.info(f"Processing PR #{pr_number}: {pr_data['title']}")
         
-        for pr_data in pr_data_list:
-            pr_number = pr_data.get('pr_number', 'N/A')
-            logging.info(f"Processing PR #{pr_number}: {pr_data['title']}")
-            
-            ai_summary = generate_ai_summary(pr_data, LANGUAGE)
-            ai_data, ai_model = ai_summary  # Fix tuple unpacking
-            send_to_discord(ai_data, pr_data['repo'], LANGUAGE)
-            
-            logging.info(f"Completed PR #{pr_number}")
+        ai_summary = generate_ai_summary(pr_data, LANGUAGE)
+        ai_data, ai_model = ai_summary  # Fix tuple unpacking
+        send_to_discord(ai_data, pr_data['repo'], LANGUAGE)
+        logging.info(f"Completed PR #{pr_number}")
             
     except Exception as e:
         logging.error(f"Error occurred: {e}")

@@ -34,14 +34,6 @@ CATEGORIES = {
     "known_issues": {"en": "⚠️ Known Issues", "sv": "⚠️ Kända problem", "color": EMBED_COLORS["known_issues"]}
 }
 
-# Mock Data Configuration
-MOCK_DATA = {
-    "repo": "mock-repo-tracker",
-    "branch": "feature/new-api",
-    "title": "Update API and fix crashes",
-    "description": "Added auto-compression for videos. Fixed a bug where big files crashed the app. We are currently working on a shared config loader.",
-    "commits": ["fix: memory leak", "feat: added 10mb limit", "chore: update deps"]
-}
 
 # Logging Configuration
 LOG_DIR_DEFAULT = "logs"
