@@ -1,5 +1,10 @@
 # AI Discord Release Notes
 
+![AI Powered](https://img.shields.io/badge/AI%20Powered-purple?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+![Repo Size](https://img.shields.io/github/repo-size/alienindisgui-se/discord-changelog-notifier?style=for-the-badge&color=blue)
+![License](https://img.shields.io/github/license/alienindisgui-se/discord-changelog-notifier?style=for-the-badge&color=green)
+
 A GitHub composite action that automatically summarizes pull request changes using AI and sends formatted release notes to Discord.
 
 ## Features
