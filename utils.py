@@ -26,19 +26,12 @@ def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -
     Output language: {lang_inst}.
 
     STRICT LOGIC RULES:
-    1. NO PERSONAL PRONOUNS: Do not use words like "vi", "vår", "du", "dig", "din" or "vårt". Use a neutral, objective tone. 
-       - Instead of "Vi har förbättrat...", use "Förbättrad..." or "Systemet har blivit...".
-       - Instead of "Du kan nu se...", use "Nu visas...".
-    2. LENGTH: MAX 2 SHORT SENTENCES per bullet point. 
-    3. THE "COMMON PERSON" TRANSLATION: Translate technical tasks into clear, casual benefits:
-       - Scraping/Efficiency -> "Tjänsten är nu snabbare och använder mindre resurser."
-       - Anti-bot/Detection -> "Skyddet mot att blockeras av externa plattformar har stärkts."
-       - History/Storage -> "Historik sparas nu i 4 dagar istället för 3 för en bättre överblick."
-       - Prompt changes -> "AI-sammanfattningarna har finjusterats för att bli mer lättlästa."
-       - Code cleanup -> "Systemet har städats upp för att möjliggöra smidigare uppdateringar."
-    4. PRODUCT FOCUS: Mention changes that affect the final text output, Discord visuals, or the scope of tracking.
-    5. LIMIT: Maximum 3 bullet points per category.
-    6. JSON KEYS: ALWAYS use English keys in the JSON response: "improvements", "wip", "bug_fixes", "known_issues". The content values should be in {lang_inst}, but the keys must be in English.
+    1. CONSUMER IMPACT ("Speed, Visual, Content"): Only summarize changes that affect the end user. Translate technical jargon into clear, casual benefits based on these three pillars:
+       - Speed & Efficiency: Faster performance, shorter intervals, reduced overhead, or bug fixes. (e.g., "Tjänsten är nu snabbare och stabilare.")
+       - Visual & Display: Changes to Discord visuals, layout, or how the final text output reads.
+       - Content & Scope: Expanded tracking, new accounts added, longer data storage, or new features.
+    2. OBJECTIVE TONE: ZERO personal pronouns. Do not use "vi", "vår", "du", "dig", "din", or "vårt". (e.g., Use "Nu visas..." instead of "Du kan nu se...").
+    3. STRICT LIMITS: Maximum 2 short sentences per bullet point. Maximum 3 bullet points per category.
 
     DATA TO ANALYZE:
     Repository: {repo}
