@@ -2,11 +2,15 @@
 
 # Updated for April 2026 production API strings
 AI_MODELS = {
-    # Google's current stable workhorse for free tier
-    "gemini": "gemini-2.5-flash", 
+    # Gemini models (strongest to weakest, all free tier)
+    "gemini_1": "gemini-2.5-pro",
+    "gemini_2": "gemini-2.5-flash",
+    "gemini_3": "gemini-2.5-flash-lite",
     
-    # Meta's Llama 4 Scout on Groq (Corrected API ID)
-    "groq": "meta-llama/llama-4-scout-17b-16e-instruct"
+    # Groq models (strongest to weakest, all free tier)
+    "groq_1": "llama-3.3-70b-versatile",
+    "groq_2": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "groq_3": "google/gemma-2-9b-it"
 }
 
 # Language Configuration

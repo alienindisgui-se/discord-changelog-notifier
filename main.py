@@ -1,7 +1,6 @@
 import os
 import json
 import requests
-import random
 import logging
 from datetime import datetime
 from github import Github, Auth
@@ -106,44 +105,71 @@ def get_pr_data():
         "pr_number": pr.number
     }]
 
+def is_high_demand_error(error_message):
+    """Check if error is due to high demand/temporary unavailability."""
+    high_demand_indicators = [
+        "high demand",
+        "temporary",
+        "try again later",
+        "503",
+        "UNAVAILABLE"
+    ]
+    error_str = str(error_message).lower()
+    return any(indicator in error_str for indicator in high_demand_indicators)
+
 def generate_ai_summary(pr_data, lang):
-    """Randomly selects between Gemini and Groq AI providers."""
+    """Tries AI providers sequentially with proper fallback logic."""
+    # Define provider order for fallback (capability-based)
     providers = []
     
-    # Add available providers to list
+    # Add available providers in priority order (strongest to weakest)
     if GEMINI_API_KEY:
-        providers.append(("gemini", generate_gemini_summary))
+        providers.append(("gemini_1", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_1")))
+        providers.append(("gemini_2", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_2")))
+        providers.append(("gemini_3", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_3")))
     if GROQ_API_KEY:
-        providers.append(("groq", generate_groq_summary))
+        providers.append(("groq_1", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_1")))
+        providers.append(("groq_2", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_2")))
+        providers.append(("groq_3", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_3")))
     
     # If no providers available, use fallback
     if not providers:
         logging.info("No AI providers configured, using fallback categorization...")
         return generate_fallback_summary(pr_data, lang)
     
-    # Try providers in order: Gemini first, then Groq
-    # Try providers in order: Groq first, then Gemini
+    # Try each provider sequentially
     for provider_name, provider_func in providers:
         try:
-            logging.info(f"Using AI provider: {provider_name} ({AI_MODELS[provider_name]})")
+            logging.info("Trying AI provider: {} ({})".format(provider_name, AI_MODELS[provider_name]))
             return provider_func(pr_data, lang)
         except Exception as e:
-            logging.error(f"Selected AI provider ({provider_name}) failed: {e}")
-            # Try other providers if available
-            other_providers = [p for p in providers if p[0] != provider_name]
-            if other_providers:
-                fallback_name, fallback_func = random.choice(other_providers)
-                logging.warning(f"Falling back to: {fallback_name}")
-                try:
-                    return fallback_func(pr_data, lang)
-                except Exception as fallback_e:
-                    logging.error(f"Fallback provider ({fallback_name}) also failed: {fallback_e}")
-        
-        # If all providers fail, use keyword fallback
-        logging.warning("All AI providers failed, using keyword fallback...")
-        return generate_fallback_summary(pr_data, lang)
+            error_str = str(e)
+            logging.error("AI provider ({}) failed: {}".format(provider_name, e))
+            
+            # If it's a high demand error, try next provider
+            if is_high_demand_error(error_str):
+                remaining_providers = [p for p in providers if p[0] != provider_name]
+                if remaining_providers:
+                    logging.warning("High demand error detected, trying next provider...")
+                    continue
+                else:
+                    logging.warning("All providers exhausted due to high demand, using keyword fallback...")
+                    return generate_fallback_summary(pr_data, lang)
+            else:
+                # For other errors, try next provider
+                remaining_providers = [p for p in providers if p[0] != provider_name]
+                if remaining_providers:
+                    logging.warning("Trying next provider...")
+                    continue
+                else:
+                    logging.warning("All AI providers failed, using keyword fallback...")
+                    return generate_fallback_summary(pr_data, lang)
+    
+    # If we get here, all providers failed
+    logging.warning("All AI providers failed, using keyword fallback...")
+    return generate_fallback_summary(pr_data, lang)
 
-def generate_gemini_summary(pr_data, lang):
+def generate_gemini_summary(pr_data, lang, provider_name="gemini_1"):
     """Uses Gemini to categorize PR data into a strict JSON format."""
     client = genai.Client(api_key=GEMINI_API_KEY)
     
@@ -151,7 +177,7 @@ def generate_gemini_summary(pr_data, lang):
     # logging.info(f"AI Prompt (Gemini):\n{prompt}")
     
     response = client.models.generate_content(
-        model=AI_MODELS["gemini"],
+        model=AI_MODELS[provider_name],
         contents=prompt
     )
     
@@ -171,14 +197,19 @@ def generate_gemini_summary(pr_data, lang):
     
     try:
         parsed_response = json.loads(cleaned_response)
-        return parsed_response, "Gemini 2.5 Flash"
+        model_display = {
+            "gemini_1": "Gemini 2.5 Pro",
+            "gemini_2": "Gemini 2.5 Flash",
+            "gemini_3": "Gemini 2.5 Flash-Lite"
+        }.get(provider_name, "Gemini")
+        return parsed_response, model_display
     except json.JSONDecodeError as e:
         logging.error(f"Failed to parse Gemini JSON response: {e}")
         logging.error(f"Response text was: {repr(response.text)}")
         logging.error(f"Cleaned response was: {repr(cleaned_response)}")
         raise e
 
-def generate_groq_summary(pr_data, lang):
+def generate_groq_summary(pr_data, lang, provider_name="groq_1"):
     """Uses Groq to categorize PR data into a strict JSON format."""
     try:
         client = Groq(api_key=GROQ_API_KEY)
@@ -186,17 +217,22 @@ def generate_groq_summary(pr_data, lang):
         prompt = create_ai_prompt(pr_data, lang, JSON_SCHEMA_TEMPLATE)
         
         response = client.chat.completions.create(
-            model=AI_MODELS["groq"],
+            model=AI_MODELS[provider_name],
             messages=[
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"}
         )
-        return json.loads(response.choices[0].message.content), "Groq Llama 4 Scout"
+        model_display = {
+            "groq_1": "Groq Llama 3.3 70B",
+            "groq_2": "Groq Llama 4 Scout",
+            "groq_3": "Groq Gemma 2"
+        }.get(provider_name, "Groq")
+        return json.loads(response.choices[0].message.content), model_display
     
     except Exception as e:
-        logging.error(f"Groq service unavailable ({e}), falling back...")
-        return generate_fallback_summary(pr_data, lang)
+        logging.error("Groq service unavailable ({}), falling back...".format(e))
+        raise
 
 def generate_fallback_summary(pr_data, lang):
     """Fallback categorization when AI service is unavailable."""
