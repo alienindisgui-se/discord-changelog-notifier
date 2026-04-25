@@ -98,27 +98,32 @@ python test_runner.py --test-all-models
 
 **Test real repository PRs:**
 ```bash
-python test_runner.py --repo alienindisgui-se/yt-video-analyzer
+python test_runner.py --repo alienindisgui-se/discord-changelog-notifier
 ```
 
 **Test real PRs with limit:**
 ```bash
-python test_runner.py --repo alienindisgui-se/yt-video-analyzer --limit 5
+python test_runner.py --repo alienindisgui-se/discord-changelog-notifier --limit 5
 ```
 
 **Test real PRs with specific model:**
 ```bash
-python test_runner.py --repo alienindisgui-se/yt-video-analyzer --model groq_1
+python test_runner.py --repo alienindisgui-se/discord-changelog-notifier --model groq_1
 ```
 
 **Test real PRs with all models:**
 ```bash
-python test_runner.py --repo alienindisgui-se/yt-video-analyzer --test-all-models
+python test_runner.py --repo alienindisgui-se/discord-changelog-notifier --test-all-models
+```
+
+**Test with English language:**
+```bash
+python test_runner.py --language en
 ```
 
 **Comprehensive example (most options):**
 ```bash
-python test_runner.py --repo alienindisgui-se/yt-video-analyzer --limit 10 --test-all-models
+python test_runner.py --repo alienindisgui-se/discord-changelog-notifier --limit 10 --test-all-models --language en
 ```
 
 #### Available Test Cases (Mock Data)

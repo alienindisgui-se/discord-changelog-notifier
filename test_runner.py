@@ -61,7 +61,7 @@ def get_real_prs(repo_name, limit=10):
         logging.error(f"Failed to fetch PRs from {repo_name}: {e}")
         return []
 
-def run_test_case(test_case, specific_model=None):
+def run_test_case(test_case, specific_model=None, lang="sv"):
     """Run a single test case."""
     name = test_case["name"]
     data = test_case["data"]
@@ -72,6 +72,7 @@ def run_test_case(test_case, specific_model=None):
     logging.info(f"PR Title: {data['title']}")
     logging.info(f"PR Description: {data['description'][:100]}...")
     logging.info(f"Commits: {len(data['commits'])}")
+    logging.info(f"Language: {lang}")
     
     try:
         # Test AI summary generation
@@ -80,13 +81,13 @@ def run_test_case(test_case, specific_model=None):
         if specific_model:
             logging.info(f"Testing specific model: {specific_model} ({AI_MODELS[specific_model]})")
             if specific_model.startswith("gemini"):
-                ai_summary = generate_gemini_summary(data, "sv", specific_model)
+                ai_summary = generate_gemini_summary(data, lang, specific_model)
             elif specific_model.startswith("groq"):
-                ai_summary = generate_groq_summary(data, "sv", specific_model)
+                ai_summary = generate_groq_summary(data, lang, specific_model)
             else:
                 raise ValueError(f"Unknown model: {specific_model}")
         else:
-            ai_summary = generate_ai_summary(data, "sv")
+            ai_summary = generate_ai_summary(data, lang)
         
         ai_data, ai_model = ai_summary
         
@@ -100,7 +101,7 @@ def run_test_case(test_case, specific_model=None):
         
         # Send Discord webhook
         logging.info("Sending Discord webhook...")
-        send_to_discord(ai_data, data['repo'], "sv", ai_model)
+        send_to_discord(ai_data, data['repo'], lang, ai_model)
         
         logging.info(f"✅ Test case '{name}' PASSED")
         return True
@@ -111,19 +112,20 @@ def run_test_case(test_case, specific_model=None):
         logging.error(traceback.format_exc())
         return False
 
-def run_all_tests(specific_model=None, test_cases=None):
+def run_all_tests(specific_model=None, test_cases=None, lang="sv"):
     """Run all test cases."""
     if test_cases is None:
         test_cases = TEST_PR_CASES
     
     logging.info("Starting comprehensive test suite...")
     logging.info(f"Total test cases: {len(test_cases)}")
+    logging.info(f"Language: {lang}")
     if specific_model:
         logging.info(f"Testing specific model: {specific_model} ({AI_MODELS[specific_model]})")
     
     results = []
     for test_case in test_cases:
-        success = run_test_case(test_case, specific_model)
+        success = run_test_case(test_case, specific_model, lang)
         results.append((test_case["name"], success))
     
     # Summary
@@ -155,6 +157,7 @@ if __name__ == "__main__":
     parser.add_argument("--test-all-models", action="store_true", help="Test all 6 AI models with all test cases")
     parser.add_argument("--repo", type=str, help="Test real PRs from a GitHub repository (e.g., username/repo)")
     parser.add_argument("--limit", type=int, default=10, help="Number of PRs to fetch from repository (default: 10)")
+    parser.add_argument("--language", type=str, choices=["sv", "en"], default="sv", help="Output language: sv (Swedish) or en (English), default: sv")
     args = parser.parse_args()
     
     # Determine test cases to use
@@ -172,6 +175,6 @@ if __name__ == "__main__":
             logging.info(f"\n{'#'*60}")
             logging.info(f"Testing model: {model} ({AI_MODELS[model]})")
             logging.info(f"{'#'*60}")
-            run_all_tests(specific_model=model, test_cases=test_cases)
+            run_all_tests(specific_model=model, test_cases=test_cases, lang=args.language)
     else:
-        run_all_tests(specific_model=args.model, test_cases=test_cases)
+        run_all_tests(specific_model=args.model, test_cases=test_cases, lang=args.language)

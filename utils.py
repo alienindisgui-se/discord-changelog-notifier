@@ -14,6 +14,14 @@ def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -
     """Create AI prompt focused on objective user value without personal pronouns."""
     lang_inst = "Swedish" if lang == LANGUAGE_CODES["sv"] else "English"
     
+    # Language-specific examples
+    if lang == LANGUAGE_CODES["sv"]:
+        example = "Tjänsten är nu snabbare och stabilare."
+        pronoun_warning = "Do not use 'vi', 'vår', 'du', 'dig', 'din', or 'vårt'. (e.g., Use 'Nu visas...' instead of 'Du kan nu see...')"
+    else:
+        example = "The service is now faster and more stable."
+        pronoun_warning = "Do not use 'we', 'our', 'you', 'your', or 'ours'. (e.g., Use 'Now shows...' instead of 'You can now see...')"
+    
     # Handle missing fields gracefully
     repo = pr_data.get('repo', 'Unknown')
     branch = pr_data.get('branch', 'Unknown')
@@ -23,14 +31,16 @@ def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -
     
     return f"""
     Analyze the following Pull Request and summarize changes for a general, non-technical audience.
-    Output language: {lang_inst}.
+    
+    CRITICAL: You MUST output the entire response in {lang_inst}. Do not use any other language.
+    If the input data is in a different language, translate everything to {lang_inst}.
 
     STRICT LOGIC RULES:
     1. CONSUMER IMPACT ("Speed, Visual, Content"): Only summarize changes that affect the end user. Translate technical jargon into clear, casual benefits based on these three pillars:
-       - Speed & Efficiency: Faster performance, shorter intervals, reduced overhead, or bug fixes. (e.g., "Tjänsten är nu snabbare och stabilare.")
+       - Speed & Efficiency: Faster performance, shorter intervals, reduced overhead, or bug fixes. (e.g., "{example}")
        - Visual & Display: Changes to Discord visuals, layout, or how the final text output reads.
        - Content & Scope: Expanded tracking, new accounts added, longer data storage, or new features.
-    2. OBJECTIVE TONE: ZERO personal pronouns. Do not use "vi", "vår", "du", "dig", "din", or "vårt". (e.g., Use "Nu visas..." instead of "Du kan nu se...").
+    2. OBJECTIVE TONE: ZERO personal pronouns. {pronoun_warning}
     3. STRICT LIMITS: Maximum 2 short sentences per bullet point. Maximum 3 bullet points per category.
 
     DATA TO ANALYZE:
