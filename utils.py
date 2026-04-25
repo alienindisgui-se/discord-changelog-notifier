@@ -1,5 +1,6 @@
 """Utility functions for Discord changelog notifier."""
 
+import os
 from typing import Dict, List, Any
 from config import LANGUAGE_CODES
 
@@ -13,6 +14,14 @@ def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -
     """Create AI prompt focused on objective user value without personal pronouns."""
     lang_inst = "Swedish" if lang == LANGUAGE_CODES["sv"] else "English"
     
+    # Language-specific examples
+    if lang == LANGUAGE_CODES["sv"]:
+        example = "Tjänsten är nu snabbare och stabilare."
+        pronoun_warning = "Do not use 'vi', 'vår', 'du', 'dig', 'din', or 'vårt'. (e.g., Use 'Nu visas...' instead of 'Du kan nu see...')"
+    else:
+        example = "The service is now faster and more stable."
+        pronoun_warning = "Do not use 'we', 'our', 'you', 'your', or 'ours'. (e.g., Use 'Now shows...' instead of 'You can now see...')"
+    
     # Handle missing fields gracefully
     repo = pr_data.get('repo', 'Unknown')
     branch = pr_data.get('branch', 'Unknown')
@@ -22,21 +31,17 @@ def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -
     
     return f"""
     Analyze the following Pull Request and summarize changes for a general, non-technical audience.
-    Output language: {lang_inst}.
+    
+    CRITICAL: You MUST output the entire response in {lang_inst}. Do not use any other language.
+    If the input data is in a different language, translate everything to {lang_inst}.
 
     STRICT LOGIC RULES:
-    1. NO PERSONAL PRONOUNS: Do not use words like "vi", "vår", "du", "dig", "din" or "vårt". Use a neutral, objective tone. 
-       - Instead of "Vi har förbättrat...", use "Förbättrad..." or "Systemet har blivit...".
-       - Instead of "Du kan nu se...", use "Nu visas...".
-    2. LENGTH: MAX 2 SHORT SENTENCES per bullet point. 
-    3. THE "COMMON PERSON" TRANSLATION: Translate technical tasks into clear, casual benefits:
-       - Scraping/Efficiency -> "Tjänsten är nu snabbare och använder mindre resurser."
-       - Anti-bot/Detection -> "Skyddet mot att blockeras av externa plattformar har stärkts."
-       - History/Storage -> "Historik sparas nu i 4 dagar istället för 3 för en bättre överblick."
-       - Prompt changes -> "AI-sammanfattningarna har finjusterats för att bli mer lättlästa."
-       - Code cleanup -> "Systemet har städats upp för att möjliggöra smidigare uppdateringar."
-    4. PRODUCT FOCUS: Mention changes that affect the final text output, Discord visuals, or the scope of tracking.
-    5. LIMIT: Maximum 3 bullet points per category.
+    1. CONSUMER IMPACT ("Speed, Visual, Content"): Only summarize changes that affect the end user. Translate technical jargon into clear, casual benefits based on these three pillars:
+       - Speed & Efficiency: Faster performance, shorter intervals, reduced overhead, or bug fixes. (e.g., "{example}")
+       - Visual & Display: Changes to Discord visuals, layout, or how the final text output reads.
+       - Content & Scope: Expanded tracking, new accounts added, longer data storage, or new features.
+    2. OBJECTIVE TONE: ZERO personal pronouns. {pronoun_warning}
+    3. STRICT LIMITS: Maximum 2 short sentences per bullet point. Maximum 3 bullet points per category.
 
     DATA TO ANALYZE:
     Repository: {repo}
@@ -58,21 +63,40 @@ def process_category_keywords(all_text: str, keywords: List[str], lang: str, mes
     return []
 
 
-def create_discord_embed(title: str, description: str, color: int) -> Dict[str, Any]:
+def create_discord_embed(title: str, description: str, color: int, footer: str = None) -> Dict[str, Any]:
     """Create a Discord embed with standard structure."""
-    return {
+    embed = {
         "title": title,
         "description": description,
         "color": color
     }
+    if footer:
+        embed["footer"] = {"text": footer}
+    return embed
 
 
 def get_next_log_number(log_dir: str, date_prefix: str) -> int:
     """Find the next available log number for the given date."""
-    import os
     log_number = 1
     while True:
         log_file = os.path.join(log_dir, f"{date_prefix}_{log_number}.log")
         if not os.path.exists(log_file):
             return log_number
         log_number += 1
+
+
+def strip_markdown_code_blocks(text: str) -> str:
+    """Strip markdown code block delimiters from text."""
+    from config import MARKDOWN_JSON_START, MARKDOWN_END
+    cleaned = text
+    if cleaned.startswith(MARKDOWN_JSON_START):
+        cleaned = cleaned[len(MARKDOWN_JSON_START):]
+    if cleaned.endswith(MARKDOWN_END):
+        cleaned = cleaned[:-len(MARKDOWN_END)]
+    return cleaned
+
+
+def format_bullet_points(items: List[str]) -> str:
+    """Format items as bullet points."""
+    from config import BULLET_POINT
+    return "\n" + "\n".join([f"{BULLET_POINT}{item}" for item in items])

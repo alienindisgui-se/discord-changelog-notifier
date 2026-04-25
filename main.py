@@ -1,7 +1,7 @@
 import os
 import json
+import codecs
 import requests
-import random
 import logging
 from datetime import datetime
 from github import Github, Auth
@@ -14,20 +14,38 @@ from config import (
     CATEGORIES,
     LOG_DIR_DEFAULT,
     HTTP_SUCCESS_CODES,
-    JSON_SCHEMA_TEMPLATE
+    JSON_SCHEMA_TEMPLATE,
+    ENCODING_UTF8,
+    TEST_MODE_PR,
+    MODEL_EMBED_COLOR,
+    DEFAULT_DESCRIPTION,
+    FALLBACK_MODEL_NAME,
+    ENV_DISCORD_WEBHOOK,
+    ENV_GEMINI_API_KEY,
+    ENV_GROQ_API_KEY,
+    ENV_GITHUB_TOKEN,
+    ENV_TEST_MODE,
+    ENV_LANGUAGE,
+    ENV_LOG_DIR,
+    ENV_TEST_REPO,
+    ENV_TEST_PR_NUMBER,
+    ENV_GITHUB_EVENT_PATH,
+    ENV_GITHUB_REPOSITORY
 )
 from utils import (
     create_ai_prompt,
     process_category_keywords,
     create_discord_embed,
-    get_next_log_number
+    get_next_log_number,
+    strip_markdown_code_blocks,
+    format_bullet_points
 )
 
 # Load env vars for local testing (.env file)
 load_dotenv()
 
 # Set up logging with unique timestamped files
-log_dir = os.getenv("LOG_DIR", LOG_DIR_DEFAULT)
+log_dir = os.getenv(ENV_LOG_DIR, LOG_DIR_DEFAULT)
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
@@ -37,14 +55,13 @@ log_number = get_next_log_number(log_dir, date_prefix)
 log_file = os.path.join(log_dir, f"{date_prefix}_{log_number}.log")
 
 # Configure handlers with UTF-8 encoding
-file_handler = logging.FileHandler(log_file, mode="w", encoding='utf-8')
+file_handler = logging.FileHandler(log_file, mode="w", encoding=ENCODING_UTF8)
 stream_handler = logging.StreamHandler()
 try:
-    stream_handler.stream.reconfigure(encoding='utf-8')
+    stream_handler.stream.reconfigure(encoding=ENCODING_UTF8)
 except AttributeError:
     # Fallback for older Python versions
-    import codecs
-    stream_handler.stream = codecs.getwriter('utf-8')(stream_handler.stream.buffer)
+    stream_handler.stream = codecs.getwriter(ENCODING_UTF8)(stream_handler.stream.buffer)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,12 +72,12 @@ logging.basicConfig(
     ]
 )
 
-LANGUAGE = os.getenv("LANGUAGE", "").lower().strip()
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-TEST_MODE = os.getenv("TEST_MODE", "") # 'pr' for local testing or empty for CI
+LANGUAGE = os.getenv(ENV_LANGUAGE, "").lower().strip()
+WEBHOOK_URL = os.getenv(ENV_DISCORD_WEBHOOK)
+GEMINI_API_KEY = os.getenv(ENV_GEMINI_API_KEY)
+GROQ_API_KEY = os.getenv(ENV_GROQ_API_KEY)
+GITHUB_TOKEN = os.getenv(ENV_GITHUB_TOKEN)
+TEST_MODE = os.getenv(ENV_TEST_MODE, "") # 'pr' for local testing or empty for CI
 
 def get_formatted_date(lang):
     now = datetime.now()
@@ -73,23 +90,23 @@ def get_pr_data():
     """Fetches PR data depending on the environment (CI, Local PR)."""
     gh = Github(auth=Auth.Token(GITHUB_TOKEN))
     
-    if TEST_MODE == "pr":
-        repo_name = os.getenv("TEST_REPO") # e.g., "username/repo"
+    if TEST_MODE == TEST_MODE_PR:
+        repo_name = os.getenv(ENV_TEST_REPO) # e.g., "username/repo"
         if not repo_name:
             raise ValueError("TEST_REPO environment variable is required when TEST_MODE='pr'")
         repo = gh.get_repo(repo_name)
         
         # Single PR mode
-        pr_number_str = os.getenv("TEST_PR_NUMBER")
+        pr_number_str = os.getenv(ENV_TEST_PR_NUMBER)
         if not pr_number_str:
             raise ValueError("TEST_PR_NUMBER environment variable is required when TEST_MODE='pr'")
         pr_number = int(pr_number_str)
         pr = repo.get_pull(pr_number)
     else:
         # Running in GitHub Actions
-        with open(os.getenv("GITHUB_EVENT_PATH"), 'r') as f:
+        with open(os.getenv(ENV_GITHUB_EVENT_PATH), 'r') as f:
             event = json.load(f)
-        repo_name = os.getenv("GITHUB_REPOSITORY")
+        repo_name = os.getenv(ENV_GITHUB_REPOSITORY)
         pr_number = event['pull_request']['number']
         repo = gh.get_repo(repo_name)
         pr = repo.get_pull(pr_number)
@@ -101,49 +118,77 @@ def get_pr_data():
         "repo": repo_short_name,
         "branch": pr.head.ref,
         "title": pr.title,
-        "description": pr.body or "No description provided.",
+        "description": pr.body or DEFAULT_DESCRIPTION,
         "commits": commits,
         "pr_number": pr.number
     }]
 
+def is_high_demand_error(error_message):
+    """Check if error is due to high demand/temporary unavailability."""
+    high_demand_indicators = [
+        "high demand",
+        "temporary",
+        "try again later",
+        "503",
+        "UNAVAILABLE"
+    ]
+    error_str = str(error_message).lower()
+    return any(indicator in error_str for indicator in high_demand_indicators)
+
 def generate_ai_summary(pr_data, lang):
-    """Randomly selects between Gemini and Groq AI providers."""
-    providers = []
+    """Tries AI providers sequentially with proper fallback logic."""
+    providers = _get_providers()
     
-    # Add available providers to list
-    if GEMINI_API_KEY:
-        providers.append(("gemini", generate_gemini_summary))
-    if GROQ_API_KEY:
-        providers.append(("groq", generate_groq_summary))
-    
-    # If no providers available, use fallback
     if not providers:
         logging.info("No AI providers configured, using fallback categorization...")
         return generate_fallback_summary(pr_data, lang)
     
-    # Try providers in order: Gemini first, then Groq
-    # Try providers in order: Groq first, then Gemini
+    return _try_providers_sequentially(providers, pr_data, lang)
+
+def _get_providers():
+    """Get list of available AI providers in priority order."""
+    providers = []
+    
+    if GROQ_API_KEY:
+        providers.append(("groq_1", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_1")))
+        providers.append(("groq_2", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_2")))
+        providers.append(("groq_3", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_3")))
+    if GEMINI_API_KEY:
+        providers.append(("gemini_1", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_1")))
+        providers.append(("gemini_2", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_2")))
+        providers.append(("gemini_3", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_3")))
+    
+    return providers
+
+def _try_providers_sequentially(providers, pr_data, lang):
+    """Try each provider sequentially with fallback logic."""
     for provider_name, provider_func in providers:
         try:
-            logging.info(f"Using AI provider: {provider_name} ({AI_MODELS[provider_name]})")
+            logging.info("Trying AI provider: {} ({})".format(provider_name, AI_MODELS[provider_name]))
             return provider_func(pr_data, lang)
         except Exception as e:
-            logging.error(f"Selected AI provider ({provider_name}) failed: {e}")
-            # Try other providers if available
-            other_providers = [p for p in providers if p[0] != provider_name]
-            if other_providers:
-                fallback_name, fallback_func = random.choice(other_providers)
-                logging.warning(f"Falling back to: {fallback_name}")
-                try:
-                    return fallback_func(pr_data, lang)
-                except Exception as fallback_e:
-                    logging.error(f"Fallback provider ({fallback_name}) also failed: {fallback_e}")
-        
-        # If all providers fail, use keyword fallback
-        logging.warning("All AI providers failed, using keyword fallback...")
-        return generate_fallback_summary(pr_data, lang)
+            error_str = str(e)
+            logging.error("AI provider ({}) failed: {}".format(provider_name, e))
+            
+            if not _has_remaining_providers(providers, provider_name):
+                return generate_fallback_summary(pr_data, lang)
+            
+            _log_next_provider_attempt(error_str)
+    
+    return generate_fallback_summary(pr_data, lang)
 
-def generate_gemini_summary(pr_data, lang):
+def _has_remaining_providers(providers, current_provider_name):
+    """Check if there are remaining providers to try."""
+    return any(p[0] != current_provider_name for p in providers)
+
+def _log_next_provider_attempt(error_str):
+    """Log appropriate message based on error type."""
+    if is_high_demand_error(error_str):
+        logging.warning("High demand error detected, trying next provider...")
+    else:
+        logging.warning("Trying next provider...")
+
+def generate_gemini_summary(pr_data, lang, provider_name="gemini_1"):
     """Uses Gemini to categorize PR data into a strict JSON format."""
     client = genai.Client(api_key=GEMINI_API_KEY)
     
@@ -151,7 +196,7 @@ def generate_gemini_summary(pr_data, lang):
     # logging.info(f"AI Prompt (Gemini):\n{prompt}")
     
     response = client.models.generate_content(
-        model=AI_MODELS["gemini"],
+        model=AI_MODELS[provider_name],
         contents=prompt
     )
     
@@ -163,22 +208,19 @@ def generate_gemini_summary(pr_data, lang):
         raise ValueError("Empty response from Gemini")
     
     # Strip markdown code blocks if present
-    cleaned_response = response.text
-    if cleaned_response.startswith("```json"):
-        cleaned_response = cleaned_response[7:]  # Remove ```json
-    if cleaned_response.endswith("```"):
-        cleaned_response = cleaned_response[:-3]  # Remove ```
+    cleaned_response = strip_markdown_code_blocks(response.text)
     
     try:
         parsed_response = json.loads(cleaned_response)
-        return parsed_response, "Gemini 2.5 Flash"
+        model_display = AI_MODELS[provider_name]
+        return parsed_response, model_display
     except json.JSONDecodeError as e:
         logging.error(f"Failed to parse Gemini JSON response: {e}")
         logging.error(f"Response text was: {repr(response.text)}")
         logging.error(f"Cleaned response was: {repr(cleaned_response)}")
         raise e
 
-def generate_groq_summary(pr_data, lang):
+def generate_groq_summary(pr_data, lang, provider_name="groq_1"):
     """Uses Groq to categorize PR data into a strict JSON format."""
     try:
         client = Groq(api_key=GROQ_API_KEY)
@@ -186,17 +228,22 @@ def generate_groq_summary(pr_data, lang):
         prompt = create_ai_prompt(pr_data, lang, JSON_SCHEMA_TEMPLATE)
         
         response = client.chat.completions.create(
-            model=AI_MODELS["groq"],
+            model=AI_MODELS[provider_name],
             messages=[
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"}
         )
-        return json.loads(response.choices[0].message.content), "Groq Llama 4 Scout"
+        
+        # Log the raw response for debugging
+        logging.info("Raw Groq response: {}".format(response.choices[0].message.content))
+        
+        model_display = AI_MODELS[provider_name]
+        return json.loads(response.choices[0].message.content), model_display
     
     except Exception as e:
-        logging.error(f"Groq service unavailable ({e}), falling back...")
-        return generate_fallback_summary(pr_data, lang)
+        logging.error("Groq service unavailable ({}), falling back...".format(e))
+        raise
 
 def generate_fallback_summary(pr_data, lang):
     """Fallback categorization when AI service is unavailable."""
@@ -240,9 +287,9 @@ def generate_fallback_summary(pr_data, lang):
         "wip": wip,
         "bug_fixes": bug_fixes,
         "known_issues": known_issues
-    }, "Keyword-based Fallback"
+    }, FALLBACK_MODEL_NAME
 
-def send_to_discord(ai_data, repo_name, lang):
+def send_to_discord(ai_data, repo_name, lang, ai_model=None):
     """Formats the data according to the strict template and sends the Webhook."""
     lang_key = 'sv' if lang == 'sv' else 'en'
     
@@ -252,15 +299,27 @@ def send_to_discord(ai_data, repo_name, lang):
         items = ai_data.get(key, [])
         if items:
             # Format with bullet points, starting with newline
-            description = "\n" + "\n".join([f"• {item}" for item in items])
+            description = format_bullet_points(items)
             
-            # Title format: "🚀 Förbättringar" (no repo name in title)
+            # Title format: "Förbättringar" (no repo name in title)
             title = f"{config[lang_key]}"
             
             embeds.append(create_discord_embed(title, description, config["color"]))
     
+    content = f"**{get_formatted_date(lang_key).replace('**', '')} - {repo_name}**"
+    
+    # Add model as dark purple embed at the end if available
+    if ai_model:
+        embeds.append(create_discord_embed("", f"**model:** `{ai_model}`", MODEL_EMBED_COLOR))  # Dark purple
+    
+    # If no embeds (and no model embed), log warning and don't send webhook
+    if not embeds:
+        logging.warning("No embeds generated - AI returned empty categories. PR data: {}".format(pr_data))
+        logging.warning("Skipping Discord webhook due to empty content")
+        return
+    
     payload = {
-        "content": f"**{get_formatted_date(lang_key).replace('**', '')} - {repo_name}**",
+        "content": content,
         "embeds": embeds,
         "attachments": []
     }
@@ -289,7 +348,7 @@ if __name__ == "__main__":
         
         ai_summary = generate_ai_summary(pr_data, LANGUAGE)
         ai_data, ai_model = ai_summary  # Fix tuple unpacking
-        send_to_discord(ai_data, pr_data['repo'], LANGUAGE)
+        send_to_discord(ai_data, pr_data['repo'], LANGUAGE, ai_model)
         logging.info(f"Completed PR #{pr_number}")
             
     except Exception as e:
