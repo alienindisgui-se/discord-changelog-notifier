@@ -73,3 +73,20 @@ def get_next_log_number(log_dir: str, date_prefix: str) -> int:
         if not os.path.exists(log_file):
             return log_number
         log_number += 1
+
+
+def strip_markdown_code_blocks(text: str) -> str:
+    """Strip markdown code block delimiters from text."""
+    from config import MARKDOWN_JSON_START, MARKDOWN_END
+    cleaned = text
+    if cleaned.startswith(MARKDOWN_JSON_START):
+        cleaned = cleaned[len(MARKDOWN_JSON_START):]
+    if cleaned.endswith(MARKDOWN_END):
+        cleaned = cleaned[:-len(MARKDOWN_END)]
+    return cleaned
+
+
+def format_bullet_points(items: List[str]) -> str:
+    """Format items as bullet points."""
+    from config import BULLET_POINT
+    return "\n" + "\n".join([f"{BULLET_POINT}{item}" for item in items])

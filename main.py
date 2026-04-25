@@ -14,20 +14,38 @@ from config import (
     CATEGORIES,
     LOG_DIR_DEFAULT,
     HTTP_SUCCESS_CODES,
-    JSON_SCHEMA_TEMPLATE
+    JSON_SCHEMA_TEMPLATE,
+    ENCODING_UTF8,
+    TEST_MODE_PR,
+    MODEL_EMBED_COLOR,
+    DEFAULT_DESCRIPTION,
+    FALLBACK_MODEL_NAME,
+    ENV_DISCORD_WEBHOOK,
+    ENV_GEMINI_API_KEY,
+    ENV_GROQ_API_KEY,
+    ENV_GITHUB_TOKEN,
+    ENV_TEST_MODE,
+    ENV_LANGUAGE,
+    ENV_LOG_DIR,
+    ENV_TEST_REPO,
+    ENV_TEST_PR_NUMBER,
+    ENV_GITHUB_EVENT_PATH,
+    ENV_GITHUB_REPOSITORY
 )
 from utils import (
     create_ai_prompt,
     process_category_keywords,
     create_discord_embed,
-    get_next_log_number
+    get_next_log_number,
+    strip_markdown_code_blocks,
+    format_bullet_points
 )
 
 # Load env vars for local testing (.env file)
 load_dotenv()
 
 # Set up logging with unique timestamped files
-log_dir = os.getenv("LOG_DIR", LOG_DIR_DEFAULT)
+log_dir = os.getenv(ENV_LOG_DIR, LOG_DIR_DEFAULT)
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
@@ -37,13 +55,13 @@ log_number = get_next_log_number(log_dir, date_prefix)
 log_file = os.path.join(log_dir, f"{date_prefix}_{log_number}.log")
 
 # Configure handlers with UTF-8 encoding
-file_handler = logging.FileHandler(log_file, mode="w", encoding='utf-8')
+file_handler = logging.FileHandler(log_file, mode="w", encoding=ENCODING_UTF8)
 stream_handler = logging.StreamHandler()
 try:
-    stream_handler.stream.reconfigure(encoding='utf-8')
+    stream_handler.stream.reconfigure(encoding=ENCODING_UTF8)
 except AttributeError:
     # Fallback for older Python versions
-    stream_handler.stream = codecs.getwriter('utf-8')(stream_handler.stream.buffer)
+    stream_handler.stream = codecs.getwriter(ENCODING_UTF8)(stream_handler.stream.buffer)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,12 +72,12 @@ logging.basicConfig(
     ]
 )
 
-LANGUAGE = os.getenv("LANGUAGE", "").lower().strip()
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-TEST_MODE = os.getenv("TEST_MODE", "") # 'pr' for local testing or empty for CI
+LANGUAGE = os.getenv(ENV_LANGUAGE, "").lower().strip()
+WEBHOOK_URL = os.getenv(ENV_DISCORD_WEBHOOK)
+GEMINI_API_KEY = os.getenv(ENV_GEMINI_API_KEY)
+GROQ_API_KEY = os.getenv(ENV_GROQ_API_KEY)
+GITHUB_TOKEN = os.getenv(ENV_GITHUB_TOKEN)
+TEST_MODE = os.getenv(ENV_TEST_MODE, "") # 'pr' for local testing or empty for CI
 
 def get_formatted_date(lang):
     now = datetime.now()
@@ -72,23 +90,23 @@ def get_pr_data():
     """Fetches PR data depending on the environment (CI, Local PR)."""
     gh = Github(auth=Auth.Token(GITHUB_TOKEN))
     
-    if TEST_MODE == "pr":
-        repo_name = os.getenv("TEST_REPO") # e.g., "username/repo"
+    if TEST_MODE == TEST_MODE_PR:
+        repo_name = os.getenv(ENV_TEST_REPO) # e.g., "username/repo"
         if not repo_name:
             raise ValueError("TEST_REPO environment variable is required when TEST_MODE='pr'")
         repo = gh.get_repo(repo_name)
         
         # Single PR mode
-        pr_number_str = os.getenv("TEST_PR_NUMBER")
+        pr_number_str = os.getenv(ENV_TEST_PR_NUMBER)
         if not pr_number_str:
             raise ValueError("TEST_PR_NUMBER environment variable is required when TEST_MODE='pr'")
         pr_number = int(pr_number_str)
         pr = repo.get_pull(pr_number)
     else:
         # Running in GitHub Actions
-        with open(os.getenv("GITHUB_EVENT_PATH"), 'r') as f:
+        with open(os.getenv(ENV_GITHUB_EVENT_PATH), 'r') as f:
             event = json.load(f)
-        repo_name = os.getenv("GITHUB_REPOSITORY")
+        repo_name = os.getenv(ENV_GITHUB_REPOSITORY)
         pr_number = event['pull_request']['number']
         repo = gh.get_repo(repo_name)
         pr = repo.get_pull(pr_number)
@@ -100,7 +118,7 @@ def get_pr_data():
         "repo": repo_short_name,
         "branch": pr.head.ref,
         "title": pr.title,
-        "description": pr.body or "No description provided.",
+        "description": pr.body or DEFAULT_DESCRIPTION,
         "commits": commits,
         "pr_number": pr.number
     }]
@@ -190,11 +208,7 @@ def generate_gemini_summary(pr_data, lang, provider_name="gemini_1"):
         raise ValueError("Empty response from Gemini")
     
     # Strip markdown code blocks if present
-    cleaned_response = response.text
-    if cleaned_response.startswith("```json"):
-        cleaned_response = cleaned_response[7:]  # Remove ```json
-    if cleaned_response.endswith("```"):
-        cleaned_response = cleaned_response[:-3]  # Remove ```
+    cleaned_response = strip_markdown_code_blocks(response.text)
     
     try:
         parsed_response = json.loads(cleaned_response)
@@ -273,7 +287,7 @@ def generate_fallback_summary(pr_data, lang):
         "wip": wip,
         "bug_fixes": bug_fixes,
         "known_issues": known_issues
-    }, "Keyword-based Fallback"
+    }, FALLBACK_MODEL_NAME
 
 def send_to_discord(ai_data, repo_name, lang, ai_model=None):
     """Formats the data according to the strict template and sends the Webhook."""
@@ -285,7 +299,7 @@ def send_to_discord(ai_data, repo_name, lang, ai_model=None):
         items = ai_data.get(key, [])
         if items:
             # Format with bullet points, starting with newline
-            description = "\n" + "\n".join([f"• {item}" for item in items])
+            description = format_bullet_points(items)
             
             # Title format: "Förbättringar" (no repo name in title)
             title = f"{config[lang_key]}"
@@ -296,7 +310,7 @@ def send_to_discord(ai_data, repo_name, lang, ai_model=None):
     
     # Add model as dark purple embed at the end if available
     if ai_model:
-        embeds.append(create_discord_embed("", f"**model:** `{ai_model}`", 0x581845))  # Dark purple
+        embeds.append(create_discord_embed("", f"**model:** `{ai_model}`", MODEL_EMBED_COLOR))  # Dark purple
     
     # If no embeds (and no model embed), log warning and don't send webhook
     if not embeds:
