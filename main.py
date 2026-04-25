@@ -122,15 +122,15 @@ def generate_ai_summary(pr_data, lang):
     # Define provider order for fallback (capability-based)
     providers = []
     
-    # Add available providers in priority order (strongest to weakest)
-    if GEMINI_API_KEY:
-        providers.append(("gemini_1", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_1")))
-        providers.append(("gemini_2", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_2")))
-        providers.append(("gemini_3", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_3")))
+    # Add available providers in priority order (Groq first, then Gemini as fallback)
     if GROQ_API_KEY:
         providers.append(("groq_1", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_1")))
         providers.append(("groq_2", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_2")))
         providers.append(("groq_3", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_3")))
+    if GEMINI_API_KEY:
+        providers.append(("gemini_1", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_1")))
+        providers.append(("gemini_2", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_2")))
+        providers.append(("gemini_3", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_3")))
     
     # If no providers available, use fallback
     if not providers:
