@@ -4,9 +4,12 @@ inputs:
   discord_webhook:
     description: 'Discord Webhook URL'
     required: true
-  ai_api_key:
+  gemini_api_key:
     description: 'Gemini API Key'
-    required: true
+    required: false
+  groq_api_key:
+    description: 'Groq API Key'
+    required: false
   language:
     description: 'Output language (blank for English, sv for Swedish)'
     required: false
@@ -18,7 +21,7 @@ runs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.14'
         
     - name: Install dependencies
       run: pip install -r ${{ github.action_path }}/requirements.txt
@@ -29,7 +32,8 @@ runs:
       shell: bash
       env:
         DISCORD_WEBHOOK: ${{ inputs.discord_webhook }}
-        GEMINI_API_KEY: ${{ inputs.ai_api_key }}
+        GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
+        GROQ_API_KEY: ${{ inputs.groq_api_key }}
         GITHUB_TOKEN: ${{ github.token }}
         LANGUAGE: ${{ inputs.language }}
         GITHUB_EVENT_PATH: ${{ github.event_path }}
