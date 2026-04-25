@@ -1,5 +1,6 @@
 import os
 import json
+import codecs
 import requests
 import logging
 from datetime import datetime
@@ -42,7 +43,6 @@ try:
     stream_handler.stream.reconfigure(encoding='utf-8')
 except AttributeError:
     # Fallback for older Python versions
-    import codecs
     stream_handler.stream = codecs.getwriter('utf-8')(stream_handler.stream.buffer)
 
 logging.basicConfig(

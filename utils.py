@@ -1,5 +1,6 @@
 """Utility functions for Discord changelog notifier."""
 
+import os
 from typing import Dict, List, Any
 from config import LANGUAGE_CODES
 
@@ -69,7 +70,6 @@ def create_discord_embed(title: str, description: str, color: int) -> Dict[str, 
 
 def get_next_log_number(log_dir: str, date_prefix: str) -> int:
     """Find the next available log number for the given date."""
-    import os
     log_number = 1
     while True:
         log_file = os.path.join(log_dir, f"{date_prefix}_{log_number}.log")
