@@ -119,10 +119,18 @@ def is_high_demand_error(error_message):
 
 def generate_ai_summary(pr_data, lang):
     """Tries AI providers sequentially with proper fallback logic."""
-    # Define provider order for fallback (capability-based)
+    providers = _get_providers()
+    
+    if not providers:
+        logging.info("No AI providers configured, using fallback categorization...")
+        return generate_fallback_summary(pr_data, lang)
+    
+    return _try_providers_sequentially(providers, pr_data, lang)
+
+def _get_providers():
+    """Get list of available AI providers in priority order."""
     providers = []
     
-    # Add available providers in priority order (Groq first, then Gemini as fallback)
     if GROQ_API_KEY:
         providers.append(("groq_1", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_1")))
         providers.append(("groq_2", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_2")))
@@ -132,12 +140,10 @@ def generate_ai_summary(pr_data, lang):
         providers.append(("gemini_2", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_2")))
         providers.append(("gemini_3", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_3")))
     
-    # If no providers available, use fallback
-    if not providers:
-        logging.info("No AI providers configured, using fallback categorization...")
-        return generate_fallback_summary(pr_data, lang)
-    
-    # Try each provider sequentially
+    return providers
+
+def _try_providers_sequentially(providers, pr_data, lang):
+    """Try each provider sequentially with fallback logic."""
     for provider_name, provider_func in providers:
         try:
             logging.info("Trying AI provider: {} ({})".format(provider_name, AI_MODELS[provider_name]))
@@ -146,28 +152,23 @@ def generate_ai_summary(pr_data, lang):
             error_str = str(e)
             logging.error("AI provider ({}) failed: {}".format(provider_name, e))
             
-            # If it's a high demand error, try next provider
-            if is_high_demand_error(error_str):
-                remaining_providers = [p for p in providers if p[0] != provider_name]
-                if remaining_providers:
-                    logging.warning("High demand error detected, trying next provider...")
-                    continue
-                else:
-                    logging.warning("All providers exhausted due to high demand, using keyword fallback...")
-                    return generate_fallback_summary(pr_data, lang)
-            else:
-                # For other errors, try next provider
-                remaining_providers = [p for p in providers if p[0] != provider_name]
-                if remaining_providers:
-                    logging.warning("Trying next provider...")
-                    continue
-                else:
-                    logging.warning("All AI providers failed, using keyword fallback...")
-                    return generate_fallback_summary(pr_data, lang)
+            if not _has_remaining_providers(providers, provider_name):
+                return generate_fallback_summary(pr_data, lang)
+            
+            _log_next_provider_attempt(error_str)
     
-    # If we get here, all providers failed
-    logging.warning("All AI providers failed, using keyword fallback...")
     return generate_fallback_summary(pr_data, lang)
+
+def _has_remaining_providers(providers, current_provider_name):
+    """Check if there are remaining providers to try."""
+    return any(p[0] != current_provider_name for p in providers)
+
+def _log_next_provider_attempt(error_str):
+    """Log appropriate message based on error type."""
+    if is_high_demand_error(error_str):
+        logging.warning("High demand error detected, trying next provider...")
+    else:
+        logging.warning("Trying next provider...")
 
 def generate_gemini_summary(pr_data, lang, provider_name="gemini_1"):
     """Uses Gemini to categorize PR data into a strict JSON format."""
