@@ -38,6 +38,7 @@ def create_ai_prompt(pr_data: Dict[str, Any], lang: str, schema_template: str) -
        - Code cleanup -> "Systemet har städats upp för att möjliggöra smidigare uppdateringar."
     4. PRODUCT FOCUS: Mention changes that affect the final text output, Discord visuals, or the scope of tracking.
     5. LIMIT: Maximum 3 bullet points per category.
+    6. JSON KEYS: ALWAYS use English keys in the JSON response: "improvements", "wip", "bug_fixes", "known_issues". The content values should be in {lang_inst}, but the keys must be in English.
 
     DATA TO ANALYZE:
     Repository: {repo}

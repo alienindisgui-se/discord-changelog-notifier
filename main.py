@@ -197,11 +197,7 @@ def generate_gemini_summary(pr_data, lang, provider_name="gemini_1"):
     
     try:
         parsed_response = json.loads(cleaned_response)
-        model_display = {
-            "gemini_1": "Gemini 2.5 Pro",
-            "gemini_2": "Gemini 2.5 Flash",
-            "gemini_3": "Gemini 2.5 Flash-Lite"
-        }.get(provider_name, "Gemini")
+        model_display = AI_MODELS[provider_name]
         return parsed_response, model_display
     except json.JSONDecodeError as e:
         logging.error(f"Failed to parse Gemini JSON response: {e}")
@@ -223,11 +219,11 @@ def generate_groq_summary(pr_data, lang, provider_name="groq_1"):
             ],
             response_format={"type": "json_object"}
         )
-        model_display = {
-            "groq_1": "Groq Llama 3.3 70B",
-            "groq_2": "Groq Llama 4 Scout",
-            "groq_3": "Groq Gemma 2"
-        }.get(provider_name, "Groq")
+        
+        # Log the raw response for debugging
+        logging.info("Raw Groq response: {}".format(response.choices[0].message.content))
+        
+        model_display = AI_MODELS[provider_name]
         return json.loads(response.choices[0].message.content), model_display
     
     except Exception as e:
@@ -278,7 +274,7 @@ def generate_fallback_summary(pr_data, lang):
         "known_issues": known_issues
     }, "Keyword-based Fallback"
 
-def send_to_discord(ai_data, repo_name, lang):
+def send_to_discord(ai_data, repo_name, lang, ai_model=None):
     """Formats the data according to the strict template and sends the Webhook."""
     lang_key = 'sv' if lang == 'sv' else 'en'
     
@@ -290,13 +286,25 @@ def send_to_discord(ai_data, repo_name, lang):
             # Format with bullet points, starting with newline
             description = "\n" + "\n".join([f"• {item}" for item in items])
             
-            # Title format: "🚀 Förbättringar" (no repo name in title)
+            # Title format: "Förbättringar" (no repo name in title)
             title = f"{config[lang_key]}"
             
             embeds.append(create_discord_embed(title, description, config["color"]))
     
+    content = f"**{get_formatted_date(lang_key).replace('**', '')} - {repo_name}**"
+    
+    # Add model as footer embed if available
+    if ai_model:
+        embeds.append(create_discord_embed("", "model: {}".format(ai_model), 0x581845))  # Dark purple
+    
+    # If no embeds (and no model embed), log warning and don't send webhook
+    if not embeds:
+        logging.warning("No embeds generated - AI returned empty categories. PR data: {}".format(pr_data))
+        logging.warning("Skipping Discord webhook due to empty content")
+        return
+    
     payload = {
-        "content": f"**{get_formatted_date(lang_key).replace('**', '')} - {repo_name}**",
+        "content": content,
         "embeds": embeds,
         "attachments": []
     }
@@ -325,7 +333,7 @@ if __name__ == "__main__":
         
         ai_summary = generate_ai_summary(pr_data, LANGUAGE)
         ai_data, ai_model = ai_summary  # Fix tuple unpacking
-        send_to_discord(ai_data, pr_data['repo'], LANGUAGE)
+        send_to_discord(ai_data, pr_data['repo'], LANGUAGE, ai_model)
         logging.info(f"Completed PR #{pr_number}")
             
     except Exception as e:
