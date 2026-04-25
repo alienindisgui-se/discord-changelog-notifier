@@ -293,9 +293,9 @@ def send_to_discord(ai_data, repo_name, lang, ai_model=None):
     
     content = f"**{get_formatted_date(lang_key).replace('**', '')} - {repo_name}**"
     
-    # Add model as footer embed if available
+    # Add model as dark purple embed at the end if available
     if ai_model:
-        embeds.append(create_discord_embed("", "model: {}".format(ai_model), 0x581845))  # Dark purple
+        embeds.append(create_discord_embed("", f"**model:** `{ai_model}`", 0x581845))  # Dark purple
     
     # If no embeds (and no model embed), log warning and don't send webhook
     if not embeds:

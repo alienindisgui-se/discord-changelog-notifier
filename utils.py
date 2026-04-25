@@ -53,13 +53,16 @@ def process_category_keywords(all_text: str, keywords: List[str], lang: str, mes
     return []
 
 
-def create_discord_embed(title: str, description: str, color: int) -> Dict[str, Any]:
+def create_discord_embed(title: str, description: str, color: int, footer: str = None) -> Dict[str, Any]:
     """Create a Discord embed with standard structure."""
-    return {
+    embed = {
         "title": title,
         "description": description,
         "color": color
     }
+    if footer:
+        embed["footer"] = {"text": footer}
+    return embed
 
 
 def get_next_log_number(log_dir: str, date_prefix: str) -> int:
