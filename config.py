@@ -1,15 +1,12 @@
 """Configuration constants for Discord changelog notifier."""
 
 # Updated for April 2026 production API strings
+# Least-expensive models: keep 1 Gemini and 1 Groq option for provider fallback.
 AI_MODELS = {
-    # Gemini models (strongest to weakest, all free tier)
-    "gemini_1": "gemini-2.5-pro",
-    "gemini_2": "gemini-2.5-flash",
-    "gemini_3": "gemini-2.5-flash-lite",
-    
-    # Groq models (strongest to weakest, all free tier)
-    "groq_1": "llama-3.3-70b-versatile",
-    "groq_2": "meta-llama/llama-4-scout-17b-16e-instruct",
+    # Gemini (cheapest first)
+    "gemini_2": "gemini-2.5-flash-lite",
+
+    # Groq (cheapest first)
     "groq_3": "google/gemma-2-9b-it"
 }
 
