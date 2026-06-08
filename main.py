@@ -149,14 +149,14 @@ def _get_providers():
     """Get list of available AI providers in priority order."""
     providers = []
     
-    if GROQ_API_KEY:
-        providers.append(("groq_1", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_1")))
-        providers.append(("groq_2", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_2")))
-        providers.append(("groq_3", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_3")))
+    # Least-expensive fallback order: cheapest Gemini option first, then cheapest Groq.
+    # Note: provider lambdas rely on AI_MODELS keys existing.
     if GEMINI_API_KEY:
-        providers.append(("gemini_1", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_1")))
         providers.append(("gemini_2", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_2")))
-        providers.append(("gemini_3", lambda provider_pr_data, provider_lang: generate_gemini_summary(provider_pr_data, provider_lang, "gemini_3")))
+
+    if GROQ_API_KEY:
+        providers.append(("groq_3", lambda provider_pr_data, provider_lang: generate_groq_summary(provider_pr_data, provider_lang, "groq_3")))
+
     
     return providers
 
@@ -171,11 +171,14 @@ def _try_providers_sequentially(providers, pr_data, lang):
             logging.error("AI provider ({}) failed: {}".format(provider_name, e))
             
             if not _has_remaining_providers(providers, provider_name):
-                return generate_fallback_summary(pr_data, lang)
+                logging.warning("[WARNING] All AI providers failed, no fallback will be used. Failing workflow.")
+                raise RuntimeError("All AI providers failed")
             
             _log_next_provider_attempt(error_str)
     
-    return generate_fallback_summary(pr_data, lang)
+    logging.warning("[WARNING] All AI providers failed")
+    raise RuntimeError("All AI providers failed")
+
 
 def _has_remaining_providers(providers, current_provider_name):
     """Check if there are remaining providers to try."""
